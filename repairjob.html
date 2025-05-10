@@ -1,0 +1,249 @@
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Repair Job Invoice System</title>
+  <style>
+    body {
+      font-family: 'Arial', sans-serif;
+      padding: 20px;
+      max-width: 800px;
+      margin: auto;
+      background: #fff;
+      color: #000;
+    }
+    h1 {
+      text-align: center;
+      letter-spacing: 3px;
+      margin-bottom: 20px;
+      font-size: 24px;
+    }
+    .meta {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 20px;
+      font-size: 14px;
+    }
+    .customer-info {
+      margin-bottom: 20px;
+      padding: 10px;
+      background-color: #f9f9f9;
+      border-radius: 4px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+      font-size: 12px;
+    }
+    th, td {
+      padding: 8px 5px;
+      border-bottom: 1px solid #ddd;
+      text-align: left;
+    }
+    th {
+      background-color: #f2f2f2;
+      font-weight: bold;
+    }
+    .text-right {
+      text-align: right;
+    }
+    .totals {
+      margin-top: 20px;
+      text-align: right;
+      font-size: 14px;
+    }
+    .action-buttons {
+      display: flex;
+      justify-content: center;
+      gap: 15px;
+      margin-top: 30px;
+    }
+    button {
+      padding: 10px 20px;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .print-btn { background-color: #4CAF50; }
+    .done-btn { background-color: #2196F3; }
+    @media print {
+      .action-buttons { display: none; }
+      body { padding: 0; }
+    }
+  </style>
+</head>
+<body>
+  <h1>REPAIR JOB INVOICE</h1>
+  <div class="meta">
+    <div><strong>INVOICE NO:</strong> <span id="billNumber">-</span></div>
+    <div><strong>DATE:</strong> <span id="invoiceDate">-</span></div>
+  </div>
+
+  <div class="customer-info">
+    <div><strong>CUSTOMER NAME:</strong> <span id="customerName">-</span></div>
+    <div><strong>CONTACT NO:</strong> <span id="contactNumber">-</span></div>
+    <div><strong>DEVICE:</strong> <span id="device">-</span></div>
+    <div><strong>SERIAL NO:</strong> <span id="serialNumber">-</span></div>
+    <div><strong>ISSUE:</strong> <span id="issueDescription">-</span></div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>SERVICE/PART</th>
+        <th>DESCRIPTION</th>
+        <th>PRICE (RS)</th>
+        <th>QTY</th>
+        <th>DISCOUNT (RS)</th>
+        <th>TOTAL (RS)</th>
+      </tr>
+    </thead>
+    <tbody id="invoiceTableBody"></tbody>
+  </table>
+
+  <div class="totals">
+    <div><strong>SUBTOTAL:</strong> <span id="subtotal">Rs. 0.00</span></div>
+    <div>Discount: <span id="discount">Rs. 0.00</span></div>
+    <div><strong>TOTAL:</strong> <span id="balance">Rs. 0.00</span></div>
+  </div>
+
+  <div class="action-buttons">
+    <button class="print-btn" onclick="window.print()">Print</button>
+    <button class="done-btn" id="doneBtn">Complete Job</button>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
+    import { getDatabase, ref, set, onValue, remove, get } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
+
+    // Firebase Configuration
+    const firebaseConfig = {
+      apiKey: "AIzaSyCddKRuTHpHtaQ0rLOkMOAb5q6slJ3-ybs",
+      authDomain: "project-29b6a.firebaseapp.com",
+      databaseURL: "https://project-29b6a-default-rtdb.firebaseio.com",
+      projectId: "project-29b6a",
+      storageBucket: "project-29b6a.appspot.com",
+      messagingSenderId: "731238594321",
+      appId: "1:731238594321:web:71c168ad6f35df2944feb0"
+    };
+
+    // Initialize Firebase
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+    const repairJobsRef = ref(db, 'repairJobs');
+    const repairHistoryRef = ref(db, 'RepairHistory');
+    let currentBillNumber = generateBillNumber();
+
+    // Format as RS currency
+    function formatRS(amount) {
+      return 'Rs. ' + parseFloat(amount).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    }
+
+    // Generate unique bill number (RPR-YYYYMMDDXXXX)
+    function generateBillNumber() {
+      const now = new Date();
+      return `RPR-${now.getFullYear()}${(now.getMonth()+1).toString().padStart(2,'0')}${now.getDate().toString().padStart(2,'0')}${Math.floor(Math.random()*9000+1000)}`;
+    }
+
+    // Load real-time data
+    onValue(repairJobsRef, (snapshot) => {
+      const tbody = document.getElementById('invoiceTableBody');
+      tbody.innerHTML = '';
+      let subtotal = 0, totalDiscount = 0;
+
+      if (snapshot.exists()) {
+        const data = snapshot.val();
+        
+        // Set bill number and date
+        document.getElementById('billNumber').textContent = currentBillNumber;
+        document.getElementById('invoiceDate').textContent = new Date().toLocaleDateString();
+
+        // Set customer and device info if available
+        if (data.customerInfo) {
+          document.getElementById('customerName').textContent = data.customerInfo.name || '-';
+          document.getElementById('contactNumber').textContent = data.customerInfo.phone || '-';
+          document.getElementById('device').textContent = data.customerInfo.device || '-';
+          document.getElementById('serialNumber').textContent = data.customerInfo.serial || '-';
+          document.getElementById('issueDescription').textContent = data.customerInfo.issue || '-';
+        }
+
+        // Process services/parts
+        Object.entries(data).forEach(([id, item]) => {
+          if (id !== 'customerInfo') {
+            const total = (item.Price * item.Quantity) - (item.Discount || 0);
+            subtotal += item.Price * item.Quantity;
+            totalDiscount += item.Discount || 0;
+
+            const row = document.createElement('tr');
+            row.innerHTML = `
+              <td>${item.ItemName}</td>
+              <td>${item.Description || '-'}</td>
+              <td class="text-right">${formatRS(item.Price)}</td>
+              <td class="text-right">${item.Quantity}</td>
+              <td class="text-right">${formatRS(item.Discount || 0)}</td>
+              <td class="text-right">${formatRS(total)}</td>
+            `;
+            tbody.appendChild(row);
+          }
+        });
+      }
+
+      document.getElementById('subtotal').textContent = formatRS(subtotal);
+      document.getElementById('discount').textContent = formatRS(totalDiscount);
+      document.getElementById('balance').textContent = formatRS(subtotal - totalDiscount);
+    });
+
+    // Archive repair jobs to History
+    document.getElementById('doneBtn').addEventListener('click', async () => {
+      const snapshot = await get(repairJobsRef);
+      if (!snapshot.exists()) {
+        alert('No repair jobs to complete!');
+        return;
+      }
+
+      try {
+        // Prepare history data
+        const historyData = {
+          billNumber: currentBillNumber,
+          date: new Date().toISOString(),
+          customerInfo: snapshot.val().customerInfo || {},
+          items: {},
+          subtotal: document.getElementById('subtotal').textContent,
+          discount: document.getElementById('discount').textContent,
+          total: document.getElementById('balance').textContent
+        };
+
+        // Separate items from customer info
+        Object.entries(snapshot.val()).forEach(([id, item]) => {
+          if (id !== 'customerInfo') {
+            historyData.items[id] = item;
+          }
+        });
+
+        // Save to RepairHistory node using bill number as key
+        await set(ref(db, `RepairHistory/${currentBillNumber}`), historyData);
+        
+        // Clear current repair jobs
+        await remove(repairJobsRef);
+        
+        // Generate new bill number
+        currentBillNumber = generateBillNumber();
+        document.getElementById('billNumber').textContent = currentBillNumber;
+        
+        // Reset customer info fields
+        document.getElementById('customerName').textContent = '-';
+        document.getElementById('contactNumber').textContent = '-';
+        document.getElementById('device').textContent = '-';
+        document.getElementById('serialNumber').textContent = '-';
+        document.getElementById('issueDescription').textContent = '-';
+        
+        alert(`Repair job completed and archived under ${currentBillNumber}`);
+      } catch (error) {
+        console.error('Archive error:', error);
+        alert('Error completing repair job');
+      }
+    });
+  </script>
+</body>
+</html>
